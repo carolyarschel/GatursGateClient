@@ -10,8 +10,9 @@ Contrato com o Portão (ver `claude.md` do Portão): sem refresh token. A sessã
 ## Instalação
 
 ```bash
-npm install github:carolyarschel/GatursGateClient#v0.1.0
+npm install https://github.com/carolyarschel/GatursGateClient/archive/refs/tags/v0.1.0.tar.gz
 ```
+Use o **tarball HTTPS da tag**, não `github:usuario/repo`: com a forma curta o `package-lock.json` grava `git+ssh://`, e o `npm ci` do servidor (Catploy) falha sem chave SSH do GitHub. O tarball fica no lock com hash de integridade e não precisa de git.
 
 O `dist/` é versionado: nada é compilado na instalação. O pacote funciona em backends **ESM e CommonJS** (o `openid-client`, que só existe como ESM, vai embutido no build). Requer Node 20.19+.
 
