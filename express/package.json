@@ -1,0 +1,5 @@
+{
+  "main": "../dist/express/index.cjs",
+  "module": "../dist/express/index.js",
+  "types": "../dist/express/index.d.cts"
+}

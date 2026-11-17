@@ -1,0 +1,6 @@
+node_modules/
+*.log
+.env
+.env.*
+coverage/
+# dist/ é versionado de propósito: os apps instalam direto do GitHub, sem build na instalação.
