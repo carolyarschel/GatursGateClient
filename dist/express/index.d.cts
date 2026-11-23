@@ -81,7 +81,7 @@ interface OpcoesPortao {
     /** Origem pública do app, ex.: "https://cineon.gatourso.com" (em dev, "http://localhost:5174"). */
     urlDoApp: string;
     /**
-     * Origem de PRODUÇÃO do app (ex.: "https://jogos.gatourso.com"): é o `aud` dos tokens de serviço
+     * Origem de PRODUÇÃO do app (ex.: "https://games.gatourso.com"): é o `aud` dos tokens de serviço
      * que `exigirServico` aceita, também em dev. Padrão: `urlDoApp` em produção; em dev, sem ela,
      * `exigirServico` lança erro. Só precisa para apps que expõem feed.
      */

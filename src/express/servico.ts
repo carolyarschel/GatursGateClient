@@ -65,7 +65,7 @@ export function criarServico(dep: Dependencias) {
 
   /**
    * Token de serviço para chamar o app `recurso` (a ORIGEM DE PRODUÇÃO dele, ex.:
-   * "https://jogos.gatourso.com", mesmo em dev). Fica em memória até 1 min antes de vencer.
+   * "https://games.gatourso.com", mesmo em dev). Fica em memória até 1 min antes de vencer.
    * Lança `ErroTokenDeServico` se o Portão recusar.
    */
   async function obterTokenDeServico(recurso: string, escopo: string = ESCOPO_FEED): Promise<string> {

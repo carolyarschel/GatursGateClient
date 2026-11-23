@@ -90,7 +90,7 @@ Para o **Contrato de Feed**, um app chama o outro sem usuário. O Portão emite 
 ```ts
 const portao = criarPortao({
   // ...as mesmas opções do login, mais:
-  recurso: process.env.PORTAO_RECURSO,   // https://jogos.gatourso.com: origem de PRODUÇÃO, também em dev
+  recurso: process.env.PORTAO_RECURSO,   // https://games.gatourso.com: origem de PRODUÇÃO, também em dev
 });
 
 app.use(portao.router);
@@ -112,9 +112,9 @@ O `recurso` tem como padrão o `urlDoApp` em produção. Em dev, sem ele, `exigi
 ```ts
 import { ErroTokenDeServico } from "gatur-portao-client/express";
 
-const token = await portao.obterTokenDeServico("https://jogos.gatourso.com");  // origem de PRODUÇÃO do app
+const token = await portao.obterTokenDeServico("https://games.gatourso.com");  // origem de PRODUÇÃO do app
 const r = await fetch(`${baseUrl}/gatur-feed/v1/eventos`, { headers: { authorization: `Bearer ${token}` } });
-if (r.status === 401) portao.esquecerTokenDeServico("https://jogos.gatourso.com");  // o próximo pedido busca outro
+if (r.status === 401) portao.esquecerTokenDeServico("https://games.gatourso.com");  // o próximo pedido busca outro
 ```
 
 - Usa o **mesmo** `clientId`/`clientSecret` do login.
