@@ -10,7 +10,7 @@ Contrato com o Portão (ver `claude.md` do Portão): sem refresh token. A sessã
 ## Instalação
 
 ```bash
-npm install https://github.com/carolyarschel/GatursGateClient/archive/refs/tags/v0.1.0.tar.gz
+npm install https://github.com/carolyarschel/GatursGateClient/archive/refs/tags/v0.2.0.tar.gz
 ```
 Use o **tarball HTTPS da tag**, não `github:usuario/repo`: com a forma curta o `package-lock.json` grava `git+ssh://`, e o `npm ci` do servidor (Catploy) falha sem chave SSH do GitHub. O tarball fica no lock com hash de integridade e não precisa de git.
 
@@ -33,7 +33,7 @@ import { criarPortao, exigirPapel } from "gatur-portao-client/express";
 const portao = criarPortao({
   app: "cineon",
   issuer: process.env.PORTAO_ISSUER!,            // https://gate.gatourso.com/api/auth
-  clientId: process.env.PORTAO_CLIENT_ID!,
+  clientId: process.env.PORTAO_CLIENT_KEY!,
   clientSecret: process.env.PORTAO_CLIENT_SECRET!,
   urlDoApp: process.env.PORTAO_URL_DO_APP!,      // https://cineon.gatourso.com
   segredo: process.env.PORTAO_SEGREDO!,          // 32+ caracteres, só deste app
@@ -79,6 +79,48 @@ model PortaoSessao {
 
 `armazenamentoEmMemoriaSoParaTestes()` existe só para testes.
 
+## Acesso de máquina: o CG lendo o feed (v0.2.0)
+
+Para o **Contrato de Feed**, um app chama o outro sem usuário. O Portão emite um token pelo grant `client_credentials`, com escopo `feed:read`, e o `aud` do token é a **origem de produção** do app chamado. O token é um JWT EdDSA de 15 min, sem refresh token. Ver "Acesso de máquina" no `claude.md` do Portão.
+
+**No Portão:** `npm run app:registrar -- --slug jogos --expoe-feed` (o app vira um recurso) e `-- --slug cg --le-feed` (o CG pode pedir tokens para os recursos).
+
+### App que expõe o feed (Cineon, Jogos, Biblioteca...)
+
+```ts
+const portao = criarPortao({
+  // ...as mesmas opções do login, mais:
+  recurso: process.env.PORTAO_RECURSO,   // https://jogos.gatourso.com: origem de PRODUÇÃO, também em dev
+});
+
+app.use(portao.router);
+app.get("/api/gatur-feed/v1/eventos", portao.exigirServico(), feed);  // ANTES do exigirLogin
+app.use("/api", portao.exigirLogin);
+```
+
+`exigirServico(escopo = "feed:read")` confere a assinatura (JWKS do Portão), o `iss`, `aud` = `recurso`, `typ: at+jwt`, a validade e se o token é de máquina (`sub` = `client_id`). Se passar, preenche `req.servico = { clientId, escopos }`.
+
+| Situação | Resposta |
+|---|---|
+| sem `Authorization: Bearer`, token inválido, vencido, de outro app ou de usuário | `401` `TOKEN_DE_SERVICO_INVALIDO` + `WWW-Authenticate: Bearer error="invalid_token"` |
+| token válido sem o escopo | `403` `ESCOPO_INSUFICIENTE` + `error="insufficient_scope"` |
+
+O `recurso` tem como padrão o `urlDoApp` em produção. Em dev, sem ele, `exigirServico` lança erro (o `urlDoApp` de dev é `localhost`, e esse não é o `aud`).
+
+### App que lê o feed (o CG)
+
+```ts
+import { ErroTokenDeServico } from "gatur-portao-client/express";
+
+const token = await portao.obterTokenDeServico("https://jogos.gatourso.com");  // origem de PRODUÇÃO do app
+const r = await fetch(`${baseUrl}/gatur-feed/v1/eventos`, { headers: { authorization: `Bearer ${token}` } });
+if (r.status === 401) portao.esquecerTokenDeServico("https://jogos.gatourso.com");  // o próximo pedido busca outro
+```
+
+- Usa o **mesmo** `clientId`/`clientSecret` do login.
+- O token fica **em memória**, por recurso, até 1 min antes de vencer. Chamadas simultâneas esperam o mesmo pedido.
+- Se o Portão recusar, lança `ErroTokenDeServico`, com `recurso` e `codigo` (`invalid_target`: recurso desconhecido, desativado ou não ligado; `unauthorized_client`: o client não tem `--le-feed`; `null`: falha de rede).
+
 ## Frontend (React)
 
 ```tsx
@@ -104,11 +146,12 @@ const r = await fetchComPortao("/api/filmes");
 
 ```
 PORTAO_ISSUER=https://gate.gatourso.com/api/auth
-PORTAO_CLIENT_ID=
+PORTAO_CLIENT_KEY=
 PORTAO_CLIENT_SECRET=
 PORTAO_URL_DO_APP=https://cineon.gatourso.com
 PORTAO_SEGREDO=
 PORTAO_DEV=false
+PORTAO_RECURSO=https://cineon.gatourso.com   # só em apps que expõem feed
 ```
 
 Em dev: `PORTAO_ISSUER=http://localhost:5173/api/auth` (o Portão local pelo Vite) e `PORTAO_URL_DO_APP=http://localhost:5174`. Como os `localhost` dividem cookies, o cookie de sessão de cada app tem nome próprio (`<app>.sessao`).

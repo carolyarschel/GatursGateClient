@@ -5,6 +5,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { CAMINHOS, RETORNO, ehPapel, type Papel, type UsuarioPortao } from "../comum/tipos.js";
 import { lerCookie, opcoes } from "./cookies.js";
 import { cifrarTransacao, decifrarTransacao, VALIDADE_TRANSACAO_MS } from "./transacao.js";
+import { criarServico } from "./servico.js";
 import type { OpcoesPortao, SessaoGuardada } from "./tipos.js";
 
 const EVENTO_BACKCHANNEL = "http://schemas.openid.net/event/backchannel-logout";
@@ -16,6 +17,18 @@ export interface Portao {
   lerSessao: RequestHandler;
   /** Exige login: sem sessão, navegação vai ao Portão; chamada de API recebe 401. */
   exigirLogin: RequestHandler;
+  /**
+   * App que EXPÕE feed: exige token de serviço do Portão com o escopo (padrão "feed:read").
+   * Montar antes do `exigirLogin`. Precisa de `recurso` (origem de produção) fora de produção.
+   */
+  exigirServico: (escopo?: string) => RequestHandler;
+  /**
+   * App que LÊ feed (o CG): token de serviço para chamar `recurso` (origem de PRODUÇÃO do app
+   * chamado, mesmo em dev). Fica em memória até 1 min antes de vencer. Lança `ErroTokenDeServico`.
+   */
+  obterTokenDeServico: (recurso: string, escopo?: string) => Promise<string>;
+  /** Descarta o token guardado para `recurso` (ex.: o app chamado respondeu 401). */
+  esquecerTokenDeServico: (recurso: string, escopo?: string) => void;
 }
 
 /** Só caminhos relativos do próprio app (evita open redirect). */
@@ -326,7 +339,14 @@ export function criarPortao(op: OpcoesPortao): Portao {
     }),
   );
 
-  return { router, lerSessao, exigirLogin };
+  const servico = criarServico({
+    obterConfiguracao,
+    obterJwks,
+    log,
+    recurso: op.recurso ?? (producao ? urlDoApp : null),
+  });
+
+  return { router, lerSessao, exigirLogin, ...servico };
 }
 
 /** Restringe uma rota a certos papéis (depois de `exigirLogin`). */

@@ -29,6 +29,26 @@ declare const RETORNO: {
 };
 declare function ehPapel(valor: unknown): valor is Papel;
 
+/** Escopo do Contrato de Feed: o único escopo de máquina do Portão hoje. */
+declare const ESCOPO_FEED = "feed:read";
+/** Quem chamou uma rota protegida por `exigirServico` (em `req.servico`). */
+interface ServicoPortao {
+    /** client_id de quem pediu o token (ex.: o client do CG). */
+    clientId: string;
+    escopos: string[];
+}
+/** O Portão recusou emitir o token de serviço (ex.: `invalid_target`, `unauthorized_client`). */
+declare class ErroTokenDeServico extends Error {
+    readonly recurso: string;
+    /** Código OAuth devolvido pelo Portão, ou null se a falha foi de rede/configuração. */
+    readonly codigo: string | null;
+    constructor(recurso: string, 
+    /** Código OAuth devolvido pelo Portão, ou null se a falha foi de rede/configuração. */
+    codigo: string | null, options?: {
+        cause?: unknown;
+    });
+}
+
 /** Uma sessão do app, guardada no banco do app (nunca em memória do processo em produção). */
 interface SessaoGuardada {
     /** SHA-256 (hex) do token do cookie. O token em si nunca é guardado. */
@@ -60,6 +80,12 @@ interface OpcoesPortao {
     clientSecret: string;
     /** Origem pública do app, ex.: "https://cineon.gatourso.com" (em dev, "http://localhost:5174"). */
     urlDoApp: string;
+    /**
+     * Origem de PRODUÇÃO do app (ex.: "https://jogos.gatourso.com"): é o `aud` dos tokens de serviço
+     * que `exigirServico` aceita, também em dev. Padrão: `urlDoApp` em produção; em dev, sem ela,
+     * `exigirServico` lança erro. Só precisa para apps que expõem feed.
+     */
+    recurso?: string;
     /** Segredo do app (32+ caracteres) para cifrar o cookie temporário do login. */
     segredo: string;
     armazenamento: ArmazenamentoDeSessoes;
@@ -82,6 +108,8 @@ declare global {
         interface Request {
             /** Usuário logado pelo Portão; definido por `lerSessao`/`exigirLogin`. */
             usuario?: UsuarioPortao;
+            /** Quem chamou com token de serviço; definido por `exigirServico`. */
+            servico?: ServicoPortao;
         }
     }
 }
@@ -93,6 +121,18 @@ interface Portao {
     lerSessao: RequestHandler;
     /** Exige login: sem sessão, navegação vai ao Portão; chamada de API recebe 401. */
     exigirLogin: RequestHandler;
+    /**
+     * App que EXPÕE feed: exige token de serviço do Portão com o escopo (padrão "feed:read").
+     * Montar antes do `exigirLogin`. Precisa de `recurso` (origem de produção) fora de produção.
+     */
+    exigirServico: (escopo?: string) => RequestHandler;
+    /**
+     * App que LÊ feed (o CG): token de serviço para chamar `recurso` (origem de PRODUÇÃO do app
+     * chamado, mesmo em dev). Fica em memória até 1 min antes de vencer. Lança `ErroTokenDeServico`.
+     */
+    obterTokenDeServico: (recurso: string, escopo?: string) => Promise<string>;
+    /** Descarta o token guardado para `recurso` (ex.: o app chamado respondeu 401). */
+    esquecerTokenDeServico: (recurso: string, escopo?: string) => void;
 }
 declare function criarPortao(op: OpcoesPortao): Portao;
 /** Restringe uma rota a certos papéis (depois de `exigirLogin`). */
@@ -107,5 +147,5 @@ declare function armazenamentoEmMemoriaSoParaTestes(): ArmazenamentoDeSessoes & 
     tamanho(): number;
 };
 
-export { CAMINHOS, RETORNO, armazenamentoEmMemoriaSoParaTestes, criarPortao, ehPapel, exigirPapel };
-export type { ArmazenamentoDeSessoes, OpcoesPortao, Papel, Portao, SessaoGuardada, UsuarioPortao };
+export { CAMINHOS, ESCOPO_FEED, ErroTokenDeServico, RETORNO, armazenamentoEmMemoriaSoParaTestes, criarPortao, ehPapel, exigirPapel };
+export type { ArmazenamentoDeSessoes, OpcoesPortao, Papel, Portao, ServicoPortao, SessaoGuardada, UsuarioPortao };

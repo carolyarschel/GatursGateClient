@@ -1,4 +1,5 @@
 import type { UsuarioPortao } from "../comum/tipos.js";
+import type { ServicoPortao } from "./servico.js";
 
 /** Uma sessão do app, guardada no banco do app (nunca em memória do processo em produção). */
 export interface SessaoGuardada {
@@ -33,6 +34,12 @@ export interface OpcoesPortao {
   clientSecret: string;
   /** Origem pública do app, ex.: "https://cineon.gatourso.com" (em dev, "http://localhost:5174"). */
   urlDoApp: string;
+  /**
+   * Origem de PRODUÇÃO do app (ex.: "https://jogos.gatourso.com"): é o `aud` dos tokens de serviço
+   * que `exigirServico` aceita, também em dev. Padrão: `urlDoApp` em produção; em dev, sem ela,
+   * `exigirServico` lança erro. Só precisa para apps que expõem feed.
+   */
+  recurso?: string;
   /** Segredo do app (32+ caracteres) para cifrar o cookie temporário do login. */
   segredo: string;
   armazenamento: ArmazenamentoDeSessoes;
@@ -57,6 +64,8 @@ declare global {
     interface Request {
       /** Usuário logado pelo Portão; definido por `lerSessao`/`exigirLogin`. */
       usuario?: UsuarioPortao;
+      /** Quem chamou com token de serviço; definido por `exigirServico`. */
+      servico?: ServicoPortao;
     }
   }
 }

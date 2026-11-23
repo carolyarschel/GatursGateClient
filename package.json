@@ -1,6 +1,6 @@
 {
   "name": "gatur-portao-client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Login pelo Portão de Gatur (OAuth 2.1/OIDC) para os apps do ecossistema: backend Express + frontend React.",
   "license": "UNLICENSED",
   "private": true,

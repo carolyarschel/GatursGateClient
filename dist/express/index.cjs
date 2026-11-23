@@ -21,6 +21,8 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var express_exports = {};
 __export(express_exports, {
   CAMINHOS: () => CAMINHOS,
+  ESCOPO_FEED: () => ESCOPO_FEED,
+  ErroTokenDeServico: () => ErroTokenDeServico,
   RETORNO: () => RETORNO,
   armazenamentoEmMemoriaSoParaTestes: () => armazenamentoEmMemoriaSoParaTestes,
   criarPortao: () => criarPortao,
@@ -884,6 +886,14 @@ var JWT_CLAIM_COMPARISON = "OAUTH_JWT_CLAIM_COMPARISON_FAILED";
 var JSON_ATTRIBUTE_COMPARISON = "OAUTH_JSON_ATTRIBUTE_COMPARISON_FAILED";
 var MISSING_SERVER_METADATA = "OAUTH_MISSING_SERVER_METADATA";
 var INVALID_SERVER_METADATA = "OAUTH_INVALID_SERVER_METADATA";
+async function clientCredentialsGrantRequest(as, client, clientAuthentication, parameters, options) {
+  assertAs(as);
+  assertClient(client);
+  return tokenEndpointRequest(as, client, clientAuthentication, "client_credentials", new URLSearchParams(parameters), options);
+}
+async function processClientCredentialsResponse(as, client, response, options) {
+  return processGenericAccessTokenResponse(as, client, response, void 0, options?.[jweDecrypt], options?.recognizedTokenTypes);
+}
 function assertReadableResponse(response) {
   if (response.bodyUsed) {
     throw CodedTypeError('"response" body has been used already', ERR_INVALID_ARG_VALUE);
@@ -1161,6 +1171,24 @@ async function digest(algorithm, data) {
 }
 
 // node_modules/jose/dist/webapi/util/errors.js
+var errors_exports = {};
+__export(errors_exports, {
+  JOSEAlgNotAllowed: () => JOSEAlgNotAllowed,
+  JOSEError: () => JOSEError,
+  JOSENotSupported: () => JOSENotSupported,
+  JWEDecryptionFailed: () => JWEDecryptionFailed,
+  JWEInvalid: () => JWEInvalid,
+  JWKInvalid: () => JWKInvalid,
+  JWKSInvalid: () => JWKSInvalid,
+  JWKSMultipleMatchingKeys: () => JWKSMultipleMatchingKeys,
+  JWKSNoMatchingKey: () => JWKSNoMatchingKey,
+  JWKSTimeout: () => JWKSTimeout,
+  JWSInvalid: () => JWSInvalid,
+  JWSSignatureVerificationFailed: () => JWSSignatureVerificationFailed,
+  JWTClaimValidationFailed: () => JWTClaimValidationFailed,
+  JWTExpired: () => JWTExpired,
+  JWTInvalid: () => JWTInvalid
+});
 var JOSEError = class extends Error {
   static code = "ERR_JOSE_GENERIC";
   code = "ERR_JOSE_GENERIC";
@@ -1214,6 +1242,10 @@ var JWSInvalid = class extends JOSEError {
 var JWTInvalid = class extends JOSEError {
   static code = "ERR_JWT_INVALID";
   code = "ERR_JWT_INVALID";
+};
+var JWKInvalid = class extends JOSEError {
+  static code = "ERR_JWK_INVALID";
+  code = "ERR_JWK_INVALID";
 };
 var JWKSInvalid = class extends JOSEError {
   static code = "ERR_JWKS_INVALID";
@@ -2497,6 +2529,33 @@ async function authorizationCodeGrant(config, currentUrl, checks, tokenEndpointP
   }
   return setDecryptedResponse(result, jwts);
 }
+async function clientCredentialsGrant(config, parameters, options) {
+  checkConfig(config);
+  parameters = new URLSearchParams(parameters);
+  const { as, c, auth, fetch: fetch2, tlsOnly, timeout } = int(config);
+  const response = await clientCredentialsGrantRequest(as, c, auth, parameters, {
+    [customFetch]: fetch2,
+    [allowInsecureRequests]: !tlsOnly,
+    DPoP: options?.DPoP,
+    headers: new Headers(headers),
+    signal: signal2(timeout)
+  }).catch(errorHandler);
+  const p = processClientCredentialsResponse(as, c, response);
+  let result;
+  try {
+    result = await p;
+  } catch (err) {
+    if (retryable(err, options)) {
+      return clientCredentialsGrant(config, parameters, {
+        ...options,
+        flag: retry
+      });
+    }
+    errorHandler(err);
+  }
+  addHelpers(result);
+  return result;
+}
 function buildAuthorizationUrl(config, parameters) {
   checkConfig(config);
   const { as, c, tlsOnly, hybrid, jarm, implicit } = int(config);
@@ -3156,6 +3215,116 @@ async function decifrarTransacao(valor, segredo) {
   }
 }
 
+// src/express/servico.ts
+var ESCOPO_FEED = "feed:read";
+var MARGEM_RENOVACAO_MS = 60 * 1e3;
+var ErroTokenDeServico = class extends Error {
+  constructor(recurso, codigo, options) {
+    super(`Port\xE3o recusou o token de servi\xE7o para ${recurso}: ${codigo ?? "falha ao falar com o Port\xE3o"}`, options);
+    this.recurso = recurso;
+    this.codigo = codigo;
+    this.name = "ErroTokenDeServico";
+  }
+  recurso;
+  codigo;
+};
+function normalizarRecurso(recurso) {
+  return new URL(recurso).origin;
+}
+function criarServico(dep) {
+  const cache2 = /* @__PURE__ */ new Map();
+  async function pedirToken(recurso, escopo) {
+    const config = await dep.obterConfiguracao();
+    try {
+      const resposta = await clientCredentialsGrant(config, { scope: escopo, resource: recurso });
+      const segundos = resposta.expiresIn() ?? 0;
+      return { token: resposta.access_token, expiraEm: Date.now() + segundos * 1e3 };
+    } catch (erro) {
+      const codigo = erro.error;
+      const codigoTexto = typeof codigo === "string" ? codigo : null;
+      dep.log("warn", `token de servi\xE7o para ${recurso} recusado: ${codigoTexto ?? erro.name}`);
+      throw new ErroTokenDeServico(recurso, codigoTexto, { cause: erro });
+    }
+  }
+  async function obterTokenDeServico(recurso, escopo = ESCOPO_FEED) {
+    const alvo = normalizarRecurso(recurso);
+    const chave2 = `${escopo} ${alvo}`;
+    const guardado = cache2.get(chave2);
+    if (guardado) {
+      const atual = await guardado.catch(() => null);
+      if (atual && atual.expiraEm - Date.now() > MARGEM_RENOVACAO_MS) return atual.token;
+      if (cache2.get(chave2) === guardado) cache2.delete(chave2);
+    }
+    let pedido = cache2.get(chave2);
+    if (!pedido) {
+      const novo = pedirToken(alvo, escopo);
+      cache2.set(chave2, novo);
+      novo.catch(() => {
+        if (cache2.get(chave2) === novo) cache2.delete(chave2);
+      });
+      pedido = novo;
+    }
+    return (await pedido).token;
+  }
+  function esquecerTokenDeServico(recurso, escopo = ESCOPO_FEED) {
+    cache2.delete(`${escopo} ${normalizarRecurso(recurso)}`);
+  }
+  function exigirServico(escopo = ESCOPO_FEED) {
+    if (!dep.recurso) {
+      throw new Error(
+        "gatur-portao-client: exigirServico precisa de `recurso` (a origem de produ\xE7\xE3o do app) nas op\xE7\xF5es do criarPortao"
+      );
+    }
+    const recurso = normalizarRecurso(dep.recurso);
+    const recusar = (res, status, motivo) => {
+      res.setHeader(
+        "WWW-Authenticate",
+        status === 401 ? 'Bearer error="invalid_token"' : `Bearer error="insufficient_scope", scope="${escopo}"`
+      );
+      res.status(status).json({
+        erro: status === 401 ? { codigo: "TOKEN_DE_SERVICO_INVALIDO", mensagem: "Token de servi\xE7o do Port\xE3o ausente ou inv\xE1lido." } : { codigo: "ESCOPO_INSUFICIENTE", mensagem: `O token de servi\xE7o n\xE3o tem o escopo ${escopo}.` }
+      });
+      dep.log("warn", `token de servi\xE7o recusado: ${motivo}`);
+    };
+    return (req, res, next) => {
+      const cabecalho = req.get("authorization") ?? "";
+      const [tipo, token] = cabecalho.split(" ");
+      if (tipo?.toLowerCase() !== "bearer" || !token) {
+        recusar(res, 401, "sem Authorization: Bearer");
+        return;
+      }
+      (async () => {
+        const config = await dep.obterConfiguracao();
+        const { payload } = await jwtVerify(token, await dep.obterJwks(), {
+          issuer: config.serverMetadata().issuer,
+          audience: recurso,
+          typ: "at+jwt",
+          clockTolerance: 30
+        });
+        const clientId = typeof payload.client_id === "string" ? payload.client_id : null;
+        if (!clientId || payload.sub !== clientId) {
+          recusar(res, 401, "n\xE3o \xE9 um token de m\xE1quina");
+          return;
+        }
+        const escopos = typeof payload.scope === "string" ? payload.scope.split(" ").filter(Boolean) : [];
+        if (!escopos.includes(escopo)) {
+          recusar(res, 403, `sem o escopo ${escopo}`);
+          return;
+        }
+        req.servico = { clientId, escopos };
+        next();
+      })().catch((erro) => {
+        if (erro instanceof errors_exports.JOSEError) {
+          recusar(res, 401, erro.code);
+          return;
+        }
+        next(erro);
+      });
+    };
+  }
+  return { obterTokenDeServico, esquecerTokenDeServico, exigirServico };
+}
+
 // src/express/portao.ts
 var EVENTO_BACKCHANNEL = "http://schemas.openid.net/event/backchannel-logout";
 function voltarSeguro(valor) {
@@ -3425,7 +3594,13 @@ function criarPortao(op) {
       }
     })
   );
-  return { router, lerSessao, exigirLogin };
+  const servico = criarServico({
+    obterConfiguracao,
+    obterJwks,
+    log,
+    recurso: op.recurso ?? (producao ? urlDoApp : null)
+  });
+  return { router, lerSessao, exigirLogin, ...servico };
 }
 function exigirPapel(...papeis) {
   return (req, res, next) => {
@@ -3464,6 +3639,8 @@ function armazenamentoEmMemoriaSoParaTestes() {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   CAMINHOS,
+  ESCOPO_FEED,
+  ErroTokenDeServico,
   RETORNO,
   armazenamentoEmMemoriaSoParaTestes,
   criarPortao,
